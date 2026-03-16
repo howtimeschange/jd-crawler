@@ -4,7 +4,8 @@
 
 set -e
 
-echo "🛒 京东商品爬虫启动器"
+echo ""
+echo "🛒 京东商品爬虫工具"
 echo "=============================="
 
 # 检查Python
@@ -13,51 +14,36 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-echo "✅ Python3 已安装: $(python3 --version)"
+echo "✅ Python3: $(python3 --version)"
 
-# 创建虚拟环境（可选）
-VENV_DIR=".venv"
-if [ ! -d "$VENV_DIR" ]; then
-    echo "📦 创建虚拟环境..."
-    python3 -m venv "$VENV_DIR"
-fi
+# 检查并安装依赖
+echo ""
+echo "📦 检查依赖..."
 
-# 激活虚拟环境
-source "$VENV_DIR/bin/activate"
-
-# 安装依赖
-echo "📦 安装依赖..."
-pip install --quiet playwright openpyxl 2>/dev/null || pip install --user --quiet playwright openpyxl 2>/dev/null || true
-
-# 安装chromium
-echo "🌐 安装浏览器..."
-python3 -c "from playwright.sync_api import sync_playwright" 2>/dev/null && {
-    playwright install chromium 2>/dev/null || true
+install_deps() {
+    pip3 install --quiet playwright openpyxl 2>/dev/null || \
+    pip3 install --user --quiet playwright openpyxl 2>/dev/null || \
+    python3 -m pip install --quiet playwright openpyxl 2>/dev/null || true
 }
 
-# 获取URL
-if [ -n "$1" ]; then
-    SHOP_URL="$1"
-else
-    echo ""
-    echo "📝 请输入店铺商品列表链接:"
-    echo "   例如: https://mall.jd.com/advance_search-2863474-1000462158-1000462158-0-0-0-1-1-60.html"
-    read -p "🔗 > " SHOP_URL
+if ! python3 -c "from playwright.sync_api import sync_playwright" 2>/dev/null; then
+    echo "   安装 playwright..."
+    install_deps
 fi
 
-if [ -z "$SHOP_URL" ]; then
-    echo "❌ URL不能为空"
-    exit 1
+if ! python3 -c "import openpyxl" 2>/dev/null; then
+    echo "   安装 openpyxl..."
+    install_deps
 fi
 
+echo "   ✅ 依赖就绪"
+
+# 运行爬虫（交互模式）
 echo ""
-echo "🚀 开始爬取..."
-echo "   店铺: $SHOP_URL"
+echo "🚀 启动爬虫..."
 echo ""
 
-# 运行爬虫
-python3 jd_crawler.py "$SHOP_URL"
+python3 jd_crawler.py
 
 echo ""
-echo "✅ 完成！"
-echo "   查看输出: ls -la output/"
+echo "👋 完成！"
