@@ -36,7 +36,7 @@ def print_banner():
     """打印欢迎界面"""
     print()
     print(f"{Colors.CYAN}{'='*60}{Colors.END}")
-    print(f"{Colors.CYAN}  🛒  京东商品爬虫工具 v1.0{Colors.END}")
+    print(f"{Colors.CYAN}  🛒  京东商品爬虫工具 v1.1{Colors.END}")
     print(f"{Colors.CYAN}{'='*60}{Colors.END}")
     print()
 
@@ -66,7 +66,6 @@ def get_shop_url() -> str:
     
     url = input(f"{Colors.GREEN}🔗 请粘贴店铺商品列表URL:{Colors.END} ").strip()
     
-    # 验证URL
     if not url:
         print(f"{Colors.RED}❌ URL不能为空{Colors.END}")
         return ""
@@ -77,34 +76,41 @@ def get_shop_url() -> str:
     
     return url
 
-def check_dependencies():
-    """检查并安装依赖"""
-    print(f"{Colors.BOLD}📦 检查依赖...{Colors.END}")
-    
-    try:
-        from playwright.sync_api import sync_playwright
-        print(f"  {Colors.GREEN}✓{Colors.END} playwright 已安装")
-        return True
-    except ImportError:
-        pass
-    
-    print(f"  {Colors.YELLOW}!{Colors.END} playwright 未安装，正在安装...")
-    
-    try:
-        subprocess.run([sys.executable, "-m", "pip", "install", "playwright", "openpyxl"], 
-                      check=True, capture_output=True)
-        print(f"  {Colors.GREEN}✓{Colors.END} 依赖安装成功")
-        return True
-    except:
-        print(f"  {Colors.RED}❌ 依赖安装失败，请手动安装:{Colors.END}")
-        print(f"      pip install playwright openpyxl")
-        return False
-
 # 输出目录
 OUTPUT_DIR = Path(__file__).parent / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 DEFAULT_OUTPUT_JSON = OUTPUT_DIR / "jd_products.json"
 DEFAULT_OUTPUT_XLSX = OUTPUT_DIR / "jd_products.xlsx"
+
+
+def click_next_page(page) -> bool:
+    """点击下一页按钮"""
+    try:
+        # 多种可能的下一页选择器
+        selectors = [
+            '#jTopPage > a.next',  # 下一页链接
+            '.next',  # class为next的链接
+            'a[class*="next"]',  # 包含next的链接
+            'a:has-text("下一页")',  # 文字包含下一页
+            '#jTopPage a:last-child',  # 分页最后一个链接
+            '[class*="pagination"] a:last-child',  # 分页容器最后链接
+        ]
+        
+        for selector in selectors:
+            try:
+                next_btn = page.query_selector(selector)
+                if next_btn and next_btn.is_visible():
+                    # 检查是否禁用
+                    if 'disabled' in (next_btn.get_attribute('class') or ''):
+                        return False  # 最后一页
+                    next_btn.click()
+                    return True
+            except:
+                continue
+        
+        return False
+    except Exception as e:
+        return False
 
 
 def crawl_shop(url: str) -> list:
@@ -114,7 +120,7 @@ def crawl_shop(url: str) -> list:
     print()
     
     products = []
-    total_pages = 6
+    max_pages = 6  # 最多爬取6页
     
     with sync_playwright() as p:
         # 启动浏览器（有头模式）
@@ -125,34 +131,19 @@ def crawl_shop(url: str) -> list:
         )
         page = context.new_page()
         
-        for page_num in range(1, total_pages + 1):
-            print(f"{Colors.CYAN}{'='*50}{Colors.END}")
-            print(f"📄 正在处理第 {page_num}/{total_pages} 页")
-            
-            # 构建页面URL
-            if page_num == 1:
-                page_url = url
-            else:
-                page_url = re.sub(r'-\d+-1-60\.html', f'-{page_num}-1-60.html', url)
-                if page_url == url:
-                    page_url = url.replace('.html', f'-{page_num}.html')
-            
-            print(f"   🌐 打开页面...")
-            
-            try:
-                page.goto(page_url, wait_until="networkidle", timeout=60000)
-            except:
-                try:
-                    page.goto(page_url, wait_until="domcontentloaded", timeout=30000)
-                except:
-                    print(f"   {Colors.RED}❌ 页面加载失败{Colors.END}")
-                    continue
+        # 打开第一页
+        print(f"   🌐 打开第一页...")
+        page.goto(url, wait_until="networkidle", timeout=60000)
+        
+        for page_num in range(1, max_pages + 1):
+            print(f"\n{Colors.CYAN}{'='*50}{Colors.END}")
+            print(f"📄 正在处理第 {page_num}/{max_pages} 页")
             
             # 等待价格加载
             print(f"   ⏳ 等待价格加载 (15秒)...")
             page.wait_for_timeout(15000)
             
-            # 滚动
+            # 滚动触发更多价格加载
             for _ in range(3):
                 page.evaluate("window.scrollBy(0, 500)")
                 page.wait_for_timeout(2000)
@@ -207,8 +198,14 @@ def crawl_shop(url: str) -> list:
             with open(DEFAULT_OUTPUT_JSON, 'w', encoding='utf-8') as f:
                 json.dump(products, f, ensure_ascii=False, indent=2)
             
-            if page_num < total_pages:
-                page.wait_for_timeout(2000)
+            # 尝试点击下一页
+            if page_num < max_pages:
+                print(f"   👉 点击下一页...")
+                success = click_next_page(page)
+                if not success:
+                    print(f"   ⚠️ 无法找到下一页按钮，可能已到最后一页")
+                    break
+                page.wait_for_timeout(3000)
         
         browser.close()
     
@@ -279,10 +276,6 @@ def show_existing_data():
 def main():
     """主函数"""
     print_banner()
-    
-    # 检查依赖
-    if not check_dependencies():
-        return
     
     while True:
         print_menu()

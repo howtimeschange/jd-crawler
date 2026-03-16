@@ -2,8 +2,6 @@
 
 # 京东商品爬虫 - 一键启动脚本
 
-set -e
-
 echo ""
 echo "🛒 京东商品爬虫工具"
 echo "=============================="
@@ -16,33 +14,33 @@ fi
 
 echo "✅ Python3: $(python3 --version)"
 
-# 检查并安装依赖
+# 直接运行Python检查，不尝试安装
 echo ""
 echo "📦 检查依赖..."
 
-install_deps() {
-    pip3 install --quiet playwright openpyxl 2>/dev/null || \
-    pip3 install --user --quiet playwright openpyxl 2>/dev/null || \
-    python3 -m pip install --quiet playwright openpyxl 2>/dev/null || true
-}
-
-if ! python3 -c "from playwright.sync_api import sync_playwright" 2>/dev/null; then
-    echo "   安装 playwright..."
-    install_deps
+# 用python3直接检查
+python3 -c "from playwright.sync_api import sync_playwright" 2>/dev/null
+if [ $? -eq 0 ]; then
+    echo "   ✅ playwright: OK"
+else
+    echo "   ❌ playwright: 未安装"
+    echo "   请运行: pip3 install playwright"
 fi
 
-if ! python3 -c "import openpyxl" 2>/dev/null; then
-    echo "   安装 openpyxl..."
-    install_deps
+python3 -c "import openpyxl" 2>/dev/null
+if [ $? -eq 0 ]; then
+    echo "   ✅ openpyxl: OK"
+else
+    echo "   ❌ openpyxl: 未安装"
+    echo "   请运行: pip3 install openpyxl"
 fi
 
-echo "   ✅ 依赖就绪"
-
-# 运行爬虫（交互模式）
+# 运行爬虫
 echo ""
 echo "🚀 启动爬虫..."
 echo ""
 
+cd "$(dirname "$0")"
 python3 jd_crawler.py
 
 echo ""
