@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-京东商品爬虫工具 - 交互式CLI版本 v1.2
-功能：爬取京东店铺商品信息，支持自动翻页、Excel导出
+京东商品爬虫工具 - 交互式CLI版本 v1.3
+功能：爬取京东店铺商品信息，自动检测总页数、Excel导出
 特点：友好的交互界面，支持跨平台
 """
 
@@ -56,7 +56,7 @@ def print_banner():
     """打印欢迎界面"""
     print()
     print(f"{Colors.CYAN}{'='*60}{Colors.END}")
-    print(f"{Colors.CYAN}  🛒  京东商品爬虫工具 v1.2{Colors.END}")
+    print(f"{Colors.CYAN}  🛒  京东商品爬虫工具 v1.3{Colors.END}")
     print(f"{Colors.CYAN}{'='*60}{Colors.END}")
     print()
 
@@ -96,27 +96,10 @@ def get_shop_url() -> str:
     
     return url
 
-def get_max_pages() -> int:
-    """获取爬取页数"""
-    print(f"{Colors.BOLD}📝 步骤2: 设置爬取页数{Colors.END}")
-    print()
-    print("注意:")
-    print("  - 建议不超过20页（每页约15-20秒）")
-    print("  - 页数越多，耗时越长")
-    print()
-    
-    try:
-        pages = input(f"{Colors.GREEN}📄 请输入要爬取的页数 (直接回车默认18页):{Colors.END} ").strip()
-        if not pages:
-            return 18
-        return int(pages)
-    except:
-        return 18
-
 def get_output_path() -> str:
     """获取输出路径"""
     desktop = get_desktop_path()
-    print(f"\n{Colors.BOLD}📝 步骤3: 设置输出路径{Colors.END}")
+    print(f"\n{Colors.BOLD}📝 步骤2: 设置输出路径{Colors.END}")
     print()
     print(f"桌面路径: {desktop}")
     print()
@@ -128,10 +111,54 @@ def get_output_path() -> str:
     
     return path
 
-# 输出目录（临时存储）
+# 输出目录
 OUTPUT_DIR = Path(__file__).parent / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 DEFAULT_OUTPUT_JSON = OUTPUT_DIR / "jd_products.json"
+
+
+def get_total_pages(page) -> int:
+    """自动检测总页数"""
+    try:
+        # 多种选择器尝试获取总页数
+        selectors = [
+            '#jTopPage .p-skip em',  # 总页数元素
+            '.p-skip em', 
+            '[class*="page"] em',
+            '.pagination em',
+        ]
+        
+        for selector in selectors:
+            try:
+                elem = page.query_selector(selector)
+                if elem:
+                    text = elem.inner_text()
+                    # 匹配 "共X页" 或 "1/X"
+                    match = re.search(r'共(\d+)页|(\d+)/(\d+)', text)
+                    if match:
+                        if match.group(1):
+                            return int(match.group(1))
+                        if match.group(3):
+                            return int(match.group(3))
+            except:
+                continue
+        
+        # 备选：计算总页数
+        try:
+            # 尝试获取总商品数和每页数量
+            total_elem = page.query_selector('.goods-count, .total-count, [class*="count"]')
+            if total_elem:
+                text = total_elem.inner_text()
+                match = re.search(r'(\d+)', text)
+                if match:
+                    total = int(match.group(1))
+                    return min((total // 60) + 2, 20)  # 最多20页
+        except:
+            pass
+        
+        return 6  # 默认6页
+    except:
+        return 6
 
 
 def click_next_page(page) -> bool:
@@ -150,7 +177,7 @@ def click_next_page(page) -> bool:
                 next_btn = page.query_selector(selector)
                 if next_btn and next_btn.is_visible():
                     cls = next_btn.get_attribute('class') or ''
-                    if 'disabled' in cls:
+                    if 'disabled' in cls or 'no-click' in cls:
                         return False
                     next_btn.click()
                     return True
@@ -162,11 +189,10 @@ def click_next_page(page) -> bool:
         return False
 
 
-def crawl_shop(url: str, max_pages: int) -> list:
+def crawl_shop(url: str) -> list:
     """爬取店铺商品"""
     print(f"\n{Colors.BOLD}🚀 开始爬取...{Colors.END}")
     print(f"   URL: {url[:50]}...")
-    print(f"   页数: {max_pages}页")
     print()
     
     products = []
@@ -179,20 +205,29 @@ def crawl_shop(url: str, max_pages: int) -> list:
         )
         page = context.new_page()
         
-        print(f"   🌐 打开第一页...")
+        print(f"   🌐 打开店铺页面...")
         page.goto(url, wait_until="networkidle", timeout=60000)
         
-        for page_num in range(1, max_pages + 1):
+        # 自动检测总页数
+        print(f"   🔍 检测总页数...")
+        total_pages = get_total_pages(page)
+        print(f"   ✅ 检测到总页数: {total_pages}页")
+        print()
+        
+        for page_num in range(1, total_pages + 1):
             print(f"\n{Colors.CYAN}{'='*50}{Colors.END}")
-            print(f"📄 正在处理第 {page_num}/{max_pages} 页")
+            print(f"📄 正在处理第 {page_num}/{total_pages} 页")
             
+            # 等待价格加载
             print(f"   ⏳ 等待价格加载 (15秒)...")
             page.wait_for_timeout(15000)
             
+            # 滚动触发更多加载
             for _ in range(3):
                 page.evaluate("window.scrollBy(0, 500)")
                 page.wait_for_timeout(2000)
             
+            # 提取数据
             print(f"   🔍 提取数据...")
             
             page_products = page.evaluate("""
@@ -219,6 +254,7 @@ def crawl_shop(url: str, max_pages: int) -> list:
                             
                             if (!price) price = '待获取';
                             
+                            
                             if (sku && name) {
                                 products.push({
                                     sku_id: sku,
@@ -237,11 +273,14 @@ def crawl_shop(url: str, max_pages: int) -> list:
             
             has_price = sum(1 for p in page_products if p['price'] != '待获取')
             print(f"   ✅ 获取 {len(page_products)} 个商品, 有价格: {has_price}")
+            print(f"   📦 累计: {len(products)} 个商品")
             
+            # 保存进度
             with open(DEFAULT_OUTPUT_JSON, 'w', encoding='utf-8') as f:
                 json.dump(products, f, ensure_ascii=False, indent=2)
             
-            if page_num < max_pages:
+            # 点击下一页
+            if page_num < total_pages:
                 print(f"   👉 点击下一页...")
                 success = click_next_page(page)
                 if not success:
@@ -310,7 +349,6 @@ def show_existing_data():
     
     print(f"\n{Colors.BOLD}📊 已有数据:{Colors.END}")
     print(f"   商品数量: {len(products)}")
-    
     has_price = sum(1 for p in products if p.get('price') != '待获取')
     print(f"   有价格: {has_price}")
     print()
@@ -331,18 +369,15 @@ def main():
         print()
         
         if choice == '1':
-            # 爬取
             url = get_shop_url()
             if not url:
                 continue
             
-            max_pages = get_max_pages()
             output_path = get_output_path()
             
-            products = crawl_shop(url, max_pages)
+            products = crawl_shop(url)
             
             if products:
-                # 导出Excel到指定路径
                 excel_file = export_excel(products, output_path)
                 
                 print()
